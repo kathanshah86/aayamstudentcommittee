@@ -9,6 +9,7 @@ import EventsSection from "@/components/sections/EventsSection";
 import GallerySection from "@/components/sections/GallerySection";
 import ContactSection from "@/components/sections/ContactSection";
 import AdminSection from "@/components/sections/AdminSection";
+import AuthSection from "@/components/sections/AuthSection";
 import { teamData as initialTeamData, departments as initialDepartments } from "@/data/teamData";
 import { eventsData } from "@/data/eventsData";
 import { galleryData } from "@/data/galleryData";
@@ -26,6 +27,11 @@ const Index = () => {
   const [departments, setDepartments] = useState<string[]>(initialDepartments);
 
   const handleNavigate = (section: string) => {
+    // Prevent non-admins from accessing admin section
+    if (section === 'admin' && !isAdmin) {
+      setActiveSection('auth');
+      return;
+    }
     setActiveSection(section);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -42,6 +48,10 @@ const Index = () => {
     setActiveSection('home');
   };
 
+  const handleAuthSuccess = () => {
+    setActiveSection('home');
+  };
+
   const renderSection = () => {
     switch (activeSection) {
       case 'home':
@@ -54,7 +64,13 @@ const Index = () => {
         return <GallerySection images={galleryData} onImageClick={openLightbox} />;
       case 'contact':
         return <ContactSection />;
+      case 'auth':
+        return <AuthSection onSuccess={handleAuthSuccess} />;
       case 'admin':
+        // Double-check admin access
+        if (!isAdmin) {
+          return <AuthSection onSuccess={handleAuthSuccess} />;
+        }
         return (
           <AdminSection 
             aboutText={aboutText}
