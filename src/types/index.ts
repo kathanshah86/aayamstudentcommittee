@@ -1,5 +1,6 @@
 export interface TeamMember {
   id: number;
+  dbId?: string;
   name: string;
   role: string;
   dept: string;
@@ -8,6 +9,7 @@ export interface TeamMember {
 
 export interface EventData {
   id: number;
+  dbId?: string;
   title: string;
   date: string;
   heroImage: string;
@@ -19,6 +21,7 @@ export interface EventData {
 
 export interface GalleryImage {
   id: number;
+  dbId?: string;
   src: string;
   alt: string;
 }

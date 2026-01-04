@@ -1,14 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TeamMember } from "@/types";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
+import { useDataService } from "@/hooks/useDataService";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Trash2, Upload, X } from "lucide-react";
 
 interface Profile {
   id: string;
@@ -16,40 +17,73 @@ interface Profile {
 }
 
 interface AdminSectionProps {
-  aboutText: string;
-  onAboutTextChange: (text: string) => void;
-  teamData: TeamMember[];
-  departments: string[];
-  onTeamUpdate: (team: TeamMember[]) => void;
-  onDepartmentsUpdate: (depts: string[]) => void;
   onLogout: () => void;
 }
 
 type AdminTab = 'home' | 'events' | 'gallery' | 'team' | 'users';
 
-const AdminSection = ({ 
-  aboutText, 
-  onAboutTextChange, 
-  teamData, 
-  departments, 
-  onTeamUpdate, 
-  onDepartmentsUpdate,
-  onLogout 
-}: AdminSectionProps) => {
-  const { user, isAdmin, signIn, signOut, loading } = useAuth();
+const AdminSection = ({ onLogout }: AdminSectionProps) => {
+  const { user, isAdmin, signIn, signOut, loading: authLoading } = useAuth();
+  const {
+    aboutText,
+    teamData,
+    departments,
+    events,
+    galleryImages,
+    loading: dataLoading,
+    saveAboutText,
+    addDepartment,
+    deleteDepartment,
+    addTeamMember,
+    updateTeamMember,
+    deleteTeamMember,
+    addEvent,
+    updateEvent,
+    deleteEvent,
+    addGalleryImage,
+    deleteGalleryImage
+  } = useDataService();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState<AdminTab>('home');
-  const [editAboutText, setEditAboutText] = useState(aboutText);
+  const [editAboutText, setEditAboutText] = useState('');
   const [showMemberForm, setShowMemberForm] = useState(false);
   const [showDeptManager, setShowDeptManager] = useState(false);
-  const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [newDeptName, setNewDeptName] = useState('');
-  const [memberForm, setMemberForm] = useState({ name: '', role: '', dept: '' });
+  const [memberForm, setMemberForm] = useState({ name: '', role: '', deptId: '', imageFile: null as File | null });
   const [users, setUsers] = useState<Profile[]>([]);
   const [admins, setAdmins] = useState<string[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
+  
+  // Event form state
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [eventForm, setEventForm] = useState({
+    title: '',
+    date: '',
+    shortDesc: '',
+    fullDesc: '',
+    status: 'upcoming',
+    heroFile: null as File | null,
+    galleryFiles: [] as File[],
+    existingGallery: [] as string[]
+  });
+
+  // Gallery form state
+  const [galleryFile, setGalleryFile] = useState<File | null>(null);
+  const [galleryAlt, setGalleryAlt] = useState('');
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const memberImageRef = useRef<HTMLInputElement>(null);
+  const eventHeroRef = useRef<HTMLInputElement>(null);
+  const eventGalleryRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setEditAboutText(aboutText);
+  }, [aboutText]);
 
   useEffect(() => {
     if (isAdmin) {
@@ -137,67 +171,160 @@ const AdminSection = ({
     }
   };
 
-  const saveHomeContent = () => {
-    onAboutTextChange(editAboutText);
-    toast.success('Home page content updated successfully!');
+  const handleSaveHomeContent = async () => {
+    await saveAboutText(editAboutText);
   };
 
-  const addDepartment = () => {
-    if (newDeptName.trim() && !departments.includes(newDeptName.trim())) {
-      onDepartmentsUpdate([...departments, newDeptName.trim()]);
+  const handleAddDepartment = async () => {
+    if (newDeptName.trim()) {
+      await addDepartment(newDeptName.trim());
       setNewDeptName('');
-      toast.success('Department Added');
-    }
-  };
-
-  const deleteDepartment = (name: string) => {
-    if (confirm(`Delete department: ${name}?`)) {
-      onDepartmentsUpdate(departments.filter(d => d !== name));
     }
   };
 
   const showAddMemberFormHandler = () => {
-    setEditingMember(null);
-    setMemberForm({ name: '', role: '', dept: departments[0] || '' });
+    setEditingMemberId(null);
+    setMemberForm({ name: '', role: '', deptId: departments[0]?.id || '', imageFile: null });
     setShowMemberForm(true);
   };
 
-  const editMember = (member: TeamMember) => {
-    setEditingMember(member);
-    setMemberForm({ name: member.name, role: member.role, dept: member.dept });
+  const editMember = (member: typeof teamData[0]) => {
+    setEditingMemberId(member.dbId || null);
+    const dept = departments.find(d => d.name === member.dept);
+    setMemberForm({ 
+      name: member.name, 
+      role: member.role, 
+      deptId: dept?.id || '', 
+      imageFile: null 
+    });
     setShowMemberForm(true);
   };
 
-  const deleteMember = (id: number) => {
-    if (confirm('Are you sure?')) {
-      onTeamUpdate(teamData.filter(m => m.id !== id));
-    }
-  };
-
-  const saveMember = () => {
-    if (!memberForm.name || !memberForm.role) {
-      toast.error('Name and Role required');
+  const handleSaveMember = async () => {
+    if (!memberForm.name || !memberForm.role || !memberForm.deptId) {
+      toast.error('Name, Role and Department are required');
       return;
     }
 
-    if (editingMember) {
-      onTeamUpdate(teamData.map(m => 
-        m.id === editingMember.id 
-          ? { ...m, name: memberForm.name, role: memberForm.role, dept: memberForm.dept }
-          : m
-      ));
+    if (editingMemberId) {
+      await updateTeamMember(
+        editingMemberId,
+        memberForm.name,
+        memberForm.role,
+        memberForm.deptId,
+        memberForm.imageFile || undefined
+      );
     } else {
-      const newId = teamData.length > 0 ? Math.max(...teamData.map(m => m.id)) + 1 : 1;
-      onTeamUpdate([...teamData, {
-        id: newId,
-        name: memberForm.name,
-        role: memberForm.role,
-        dept: memberForm.dept,
-        img: `https://placehold.co/115x115?text=${memberForm.name.charAt(0)}`
-      }]);
+      await addTeamMember(
+        memberForm.name,
+        memberForm.role,
+        memberForm.deptId,
+        memberForm.imageFile || undefined
+      );
     }
     setShowMemberForm(false);
-    toast.success('Member Saved!');
+  };
+
+  const handleDeleteMember = async (member: typeof teamData[0]) => {
+    if (member.dbId && confirm('Are you sure you want to delete this member?')) {
+      await deleteTeamMember(member.dbId);
+    }
+  };
+
+  // Event handlers
+  const showAddEventFormHandler = () => {
+    setEditingEventId(null);
+    setEventForm({
+      title: '',
+      date: '',
+      shortDesc: '',
+      fullDesc: '',
+      status: 'upcoming',
+      heroFile: null,
+      galleryFiles: [],
+      existingGallery: []
+    });
+    setShowEventForm(true);
+  };
+
+  const editEvent = (event: typeof events[0]) => {
+    setEditingEventId(event.dbId || null);
+    setEventForm({
+      title: event.title,
+      date: event.date,
+      shortDesc: event.shortDesc,
+      fullDesc: event.description,
+      status: event.type,
+      heroFile: null,
+      galleryFiles: [],
+      existingGallery: event.gallery
+    });
+    setShowEventForm(true);
+  };
+
+  const handleSaveEvent = async () => {
+    if (!eventForm.title || !eventForm.date) {
+      toast.error('Title and Date are required');
+      return;
+    }
+
+    if (editingEventId) {
+      await updateEvent(
+        editingEventId,
+        eventForm.title,
+        eventForm.date,
+        eventForm.shortDesc,
+        eventForm.fullDesc,
+        eventForm.status,
+        eventForm.heroFile || undefined,
+        eventForm.galleryFiles.length > 0 ? eventForm.galleryFiles : undefined,
+        eventForm.existingGallery
+      );
+    } else {
+      await addEvent(
+        eventForm.title,
+        eventForm.date,
+        eventForm.shortDesc,
+        eventForm.fullDesc,
+        eventForm.status,
+        eventForm.heroFile || undefined,
+        eventForm.galleryFiles.length > 0 ? eventForm.galleryFiles : undefined
+      );
+    }
+    setShowEventForm(false);
+  };
+
+  const handleDeleteEvent = async (event: typeof events[0]) => {
+    if (event.dbId && confirm('Are you sure you want to delete this event?')) {
+      await deleteEvent(event.dbId);
+    }
+  };
+
+  const removeGalleryFromEvent = (index: number) => {
+    setEventForm({
+      ...eventForm,
+      existingGallery: eventForm.existingGallery.filter((_, i) => i !== index)
+    });
+  };
+
+  // Gallery handlers
+  const handleAddGalleryImage = async () => {
+    if (!galleryFile) {
+      toast.error('Please select an image');
+      return;
+    }
+    await addGalleryImage(galleryFile, galleryAlt);
+    setGalleryFile(null);
+    setGalleryAlt('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteGalleryImage = async (image: typeof galleryImages[0]) => {
+    if (image.dbId && confirm('Are you sure you want to delete this image?')) {
+      await deleteGalleryImage(image.dbId);
+    }
   };
 
   const navItems = [
@@ -208,7 +335,7 @@ const AdminSection = ({
     { id: 'users' as const, label: 'Manage Admins' },
   ];
 
-  if (loading) {
+  if (authLoading || dataLoading) {
     return (
       <div className="animate-fade-in text-center py-20">
         <p className="text-muted-foreground">Loading...</p>
@@ -316,7 +443,7 @@ const AdminSection = ({
                     className="mt-1"
                   />
                 </div>
-                <Button onClick={saveHomeContent}>Save Changes</Button>
+                <Button onClick={handleSaveHomeContent}>Save Changes</Button>
               </div>
             </div>
           )}
@@ -324,16 +451,200 @@ const AdminSection = ({
           {/* Manage Events Tab */}
           {activeTab === 'events' && (
             <div>
-              <h3 className="text-xl font-bold mb-4">Add New Event</h3>
-              <p className="text-muted-foreground">Event management coming soon...</p>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold">Manage Events</h3>
+                <Button onClick={showAddEventFormHandler}>+ Add New Event</Button>
+              </div>
+
+              {/* Event Form */}
+              {showEventForm && (
+                <div className="bg-card p-5 rounded-lg mb-5 border-2 border-primary">
+                  <h4 className="font-semibold mb-3 text-primary">
+                    {editingEventId ? 'Edit Event' : 'Add New Event'}
+                  </h4>
+                  <div className="grid gap-4">
+                    <div>
+                      <Label>Event Type</Label>
+                      <Select value={eventForm.status} onValueChange={(v) => setEventForm({ ...eventForm, status: v })}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="upcoming">Upcoming</SelectItem>
+                          <SelectItem value="past">Past</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Event Title</Label>
+                      <Input 
+                        value={eventForm.title}
+                        onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
+                        placeholder="e.g. Sports Meet 2025"
+                      />
+                    </div>
+                    <div>
+                      <Label>Date</Label>
+                      <Input 
+                        value={eventForm.date}
+                        onChange={(e) => setEventForm({ ...eventForm, date: e.target.value })}
+                        placeholder="e.g. March 15, 2025"
+                      />
+                    </div>
+                    <div>
+                      <Label>Event Image</Label>
+                      <Input 
+                        type="file"
+                        accept="image/*"
+                        ref={eventHeroRef}
+                        onChange={(e) => setEventForm({ ...eventForm, heroFile: e.target.files?.[0] || null })}
+                        className="mt-1"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Upload an image (jpg, png)</p>
+                    </div>
+                    <div>
+                      <Label>Short Description</Label>
+                      <Textarea 
+                        value={eventForm.shortDesc}
+                        onChange={(e) => setEventForm({ ...eventForm, shortDesc: e.target.value })}
+                        placeholder="Brief summary for the card..."
+                        rows={2}
+                      />
+                    </div>
+                    <div>
+                      <Label>Full Description (for past events)</Label>
+                      <Textarea 
+                        value={eventForm.fullDesc}
+                        onChange={(e) => setEventForm({ ...eventForm, fullDesc: e.target.value })}
+                        placeholder="Detailed description..."
+                        rows={4}
+                      />
+                    </div>
+                    <div>
+                      <Label>Gallery Images (for past events)</Label>
+                      <Input 
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        ref={eventGalleryRef}
+                        onChange={(e) => setEventForm({ 
+                          ...eventForm, 
+                          galleryFiles: Array.from(e.target.files || [])
+                        })}
+                        className="mt-1"
+                      />
+                      {eventForm.existingGallery.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-xs text-muted-foreground mb-2">Existing gallery images:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {eventForm.existingGallery.map((url, i) => (
+                              <div key={i} className="relative">
+                                <img src={url} alt="" className="w-16 h-16 object-cover rounded" />
+                                <button 
+                                  onClick={() => removeGalleryFromEvent(i)}
+                                  className="absolute -top-1 -right-1 bg-destructive text-white rounded-full p-0.5"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button onClick={handleSaveEvent}>
+                        {editingEventId ? 'Update Event' : 'Add Event'}
+                      </Button>
+                      <Button variant="destructive" onClick={() => setShowEventForm(false)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Events List */}
+              <div className="space-y-3">
+                {events.map((event) => (
+                  <div key={event.id} className="flex items-center gap-4 bg-card p-4 rounded-lg border">
+                    {event.heroImage && (
+                      <img src={event.heroImage} alt="" className="w-20 h-14 object-cover rounded" />
+                    )}
+                    <div className="flex-1">
+                      <h4 className="font-semibold">{event.title}</h4>
+                      <p className="text-sm text-muted-foreground">{event.date} • {event.type}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={() => editEvent(event)}>Edit</Button>
+                      <Button size="sm" variant="destructive" onClick={() => handleDeleteEvent(event)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {events.length === 0 && (
+                  <p className="text-muted-foreground text-center py-8">No events yet. Add your first event!</p>
+                )}
+              </div>
             </div>
           )}
 
           {/* Manage Gallery Tab */}
           {activeTab === 'gallery' && (
             <div>
-              <h3 className="text-xl font-bold mb-4">Add to Gallery</h3>
-              <p className="text-muted-foreground">Gallery management coming soon...</p>
+              <h3 className="text-xl font-bold mb-4 text-primary">Add to Gallery</h3>
+              
+              <div className="bg-card p-5 rounded-lg mb-6 border">
+                <div className="space-y-4">
+                  <div>
+                    <Label className="font-semibold text-primary">Upload Photo</Label>
+                    <Input 
+                      type="file"
+                      accept="image/*"
+                      ref={fileInputRef}
+                      onChange={(e) => setGalleryFile(e.target.files?.[0] || null)}
+                      className="mt-1"
+                    />
+                    <p className="text-sm text-muted-foreground mt-1">Selected image will be added to the gallery grid.</p>
+                  </div>
+                  <div>
+                    <Label>Alt Text (optional)</Label>
+                    <Input 
+                      value={galleryAlt}
+                      onChange={(e) => setGalleryAlt(e.target.value)}
+                      placeholder="Describe the image..."
+                    />
+                  </div>
+                  <Button onClick={handleAddGalleryImage} className="flex items-center gap-2">
+                    <Upload className="w-4 h-4" />
+                    Add Photo to Gallery
+                  </Button>
+                </div>
+              </div>
+
+              {/* Gallery Grid */}
+              <h4 className="font-semibold mb-3">Current Gallery ({galleryImages.length} images)</h4>
+              <div className="grid grid-cols-4 gap-3">
+                {galleryImages.map((image) => (
+                  <div key={image.id} className="relative group">
+                    <img 
+                      src={image.src} 
+                      alt={image.alt}
+                      className="w-full h-24 object-cover rounded-lg"
+                    />
+                    <button 
+                      onClick={() => handleDeleteGalleryImage(image)}
+                      className="absolute top-1 right-1 bg-destructive text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {galleryImages.length === 0 && (
+                <p className="text-muted-foreground text-center py-8">No gallery images yet.</p>
+              )}
             </div>
           )}
 
@@ -361,15 +672,15 @@ const AdminSection = ({
                       onChange={(e) => setNewDeptName(e.target.value)}
                       placeholder="New Department Name"
                     />
-                    <Button onClick={addDepartment}>Add</Button>
+                    <Button onClick={handleAddDepartment}>Add</Button>
                   </div>
-                  {departments.filter(d => d !== 'Core').map((dept) => (
-                    <div key={dept} className="flex justify-between items-center p-2 bg-card border-b">
-                      <span>{dept}</span>
+                  {departments.filter(d => d.name !== 'Core').map((dept) => (
+                    <div key={dept.id} className="flex justify-between items-center p-2 bg-card border-b">
+                      <span>{dept.name}</span>
                       <Button 
                         variant="destructive" 
                         size="sm"
-                        onClick={() => deleteDepartment(dept)}
+                        onClick={() => deleteDepartment(dept.id)}
                       >
                         X
                       </Button>
@@ -382,7 +693,7 @@ const AdminSection = ({
               {showMemberForm && (
                 <div className="bg-card p-5 rounded-lg mb-5 border-2 border-primary">
                   <h4 className="font-semibold mb-3">
-                    {editingMember ? 'Edit Member' : 'Add New Member'}
+                    {editingMemberId ? 'Edit Member' : 'Add New Member'}
                   </h4>
                   <div className="grid gap-4">
                     <div>
@@ -402,21 +713,32 @@ const AdminSection = ({
                     <div>
                       <Label>Department</Label>
                       <Select 
-                        value={memberForm.dept} 
-                        onValueChange={(v) => setMemberForm({ ...memberForm, dept: v })}
+                        value={memberForm.deptId} 
+                        onValueChange={(v) => setMemberForm({ ...memberForm, deptId: v })}
                       >
                         <SelectTrigger>
-                          <SelectValue />
+                          <SelectValue placeholder="Select department" />
                         </SelectTrigger>
                         <SelectContent>
                           {departments.map((dept) => (
-                            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                            <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
+                    <div>
+                      <Label>Photo</Label>
+                      <Input 
+                        type="file"
+                        accept="image/*"
+                        ref={memberImageRef}
+                        onChange={(e) => setMemberForm({ ...memberForm, imageFile: e.target.files?.[0] || null })}
+                        className="mt-1"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Upload member photo (jpg, png)</p>
+                    </div>
                     <div className="flex gap-2">
-                      <Button onClick={saveMember}>Save Member</Button>
+                      <Button onClick={handleSaveMember}>Save Member</Button>
                       <Button variant="destructive" onClick={() => setShowMemberForm(false)}>
                         Cancel
                       </Button>
@@ -461,7 +783,7 @@ const AdminSection = ({
                             <Button 
                               size="sm" 
                               variant="destructive"
-                              onClick={() => deleteMember(member.id)}
+                              onClick={() => handleDeleteMember(member)}
                             >
                               Delete
                             </Button>
@@ -471,6 +793,9 @@ const AdminSection = ({
                     ))}
                   </tbody>
                 </table>
+                {teamData.length === 0 && (
+                  <p className="text-muted-foreground text-center py-8">No team members yet.</p>
+                )}
               </div>
             </div>
           )}
@@ -489,42 +814,42 @@ const AdminSection = ({
                       <SelectValue placeholder="Select a registered user" />
                     </SelectTrigger>
                     <SelectContent>
-                      {users
-                        .filter(u => !admins.includes(u.id))
-                        .map((u) => (
-                          <SelectItem key={u.id} value={u.id}>
-                            {u.email || 'No email'}
-                          </SelectItem>
-                        ))}
+                      {users.filter(u => !admins.includes(u.id)).map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          {profile.email}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
-                  <Button onClick={grantAdminAccess}>Grant Access</Button>
+                  <Button onClick={grantAdminAccess}>Grant Admin</Button>
                 </div>
               </div>
 
               {/* Current Admins */}
               <div className="bg-card p-5 rounded-lg border">
                 <h4 className="font-semibold mb-3">Current Admins</h4>
-                <div className="space-y-2">
-                  {users
-                    .filter(u => admins.includes(u.id))
-                    .map((adminUser) => (
-                      <div key={adminUser.id} className="flex justify-between items-center p-3 bg-muted rounded-md">
-                        <span>{adminUser.email || 'No email'}</span>
-                        <Button 
-                          variant="destructive" 
-                          size="sm"
-                          onClick={() => revokeAdminAccess(adminUser.id)}
-                          disabled={adminUser.id === user?.id}
-                        >
-                          {adminUser.id === user?.id ? 'You' : 'Revoke'}
-                        </Button>
-                      </div>
-                    ))}
-                  {admins.length === 0 && (
-                    <p className="text-muted-foreground">No admins found</p>
-                  )}
-                </div>
+                {admins.length > 0 ? (
+                  <div className="space-y-2">
+                    {admins.map((adminId) => {
+                      const adminUser = users.find(u => u.id === adminId);
+                      return (
+                        <div key={adminId} className="flex justify-between items-center p-3 bg-muted rounded">
+                          <span>{adminUser?.email || adminId}</span>
+                          <Button 
+                            size="sm" 
+                            variant="destructive"
+                            onClick={() => revokeAdminAccess(adminId)}
+                            disabled={adminId === user?.id}
+                          >
+                            {adminId === user?.id ? 'You' : 'Revoke'}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">No admins found.</p>
+                )}
               </div>
             </div>
           )}

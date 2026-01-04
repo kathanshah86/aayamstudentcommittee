@@ -10,24 +10,16 @@ import GallerySection from "@/components/sections/GallerySection";
 import ContactSection from "@/components/sections/ContactSection";
 import AdminSection from "@/components/sections/AdminSection";
 import AuthSection from "@/components/sections/AuthSection";
-import { teamData as initialTeamData, departments as initialDepartments } from "@/data/teamData";
-import { eventsData } from "@/data/eventsData";
-import { galleryData } from "@/data/galleryData";
-import { TeamMember } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
+import { useDataService } from "@/hooks/useDataService";
 
 const Index = () => {
   const { isAdmin } = useAuth();
+  const { aboutText, teamData, departments, events, galleryImages, loading } = useDataService();
   const [activeSection, setActiveSection] = useState('home');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
-  const [aboutText, setAboutText] = useState(
-    "AAYAM Committee is a student-led college committee organizing cultural, sports, and management activities to build leadership, teamwork, and creativity."
-  );
-  const [teamData, setTeamData] = useState<TeamMember[]>(initialTeamData);
-  const [departments, setDepartments] = useState<string[]>(initialDepartments);
 
   const handleNavigate = (section: string) => {
-    // Prevent non-admins from accessing admin section
     if (section === 'admin' && !isAdmin) {
       setActiveSection('auth');
       return;
@@ -52,36 +44,35 @@ const Index = () => {
     setActiveSection('home');
   };
 
+  const departmentNames = departments.map(d => d.name);
+
   const renderSection = () => {
+    if (loading) {
+      return (
+        <div className="text-center py-20">
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      );
+    }
+
     switch (activeSection) {
       case 'home':
         return <HomeSection aboutText={aboutText} />;
       case 'team':
-        return <TeamSection teamData={teamData} departments={departments} />;
+        return <TeamSection teamData={teamData} departments={departmentNames} />;
       case 'events':
-        return <EventsSection events={eventsData} onImageClick={openLightbox} />;
+        return <EventsSection events={events} onImageClick={openLightbox} />;
       case 'gallery':
-        return <GallerySection images={galleryData} onImageClick={openLightbox} />;
+        return <GallerySection images={galleryImages} onImageClick={openLightbox} />;
       case 'contact':
         return <ContactSection />;
       case 'auth':
         return <AuthSection onSuccess={handleAuthSuccess} />;
       case 'admin':
-        // Double-check admin access
         if (!isAdmin) {
           return <AuthSection onSuccess={handleAuthSuccess} />;
         }
-        return (
-          <AdminSection 
-            aboutText={aboutText}
-            onAboutTextChange={setAboutText}
-            teamData={teamData}
-            departments={departments}
-            onTeamUpdate={setTeamData}
-            onDepartmentsUpdate={setDepartments}
-            onLogout={handleAdminLogout}
-          />
-        );
+        return <AdminSection onLogout={handleAdminLogout} />;
       default:
         return <HomeSection aboutText={aboutText} />;
     }
