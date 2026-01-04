@@ -1,3 +1,5 @@
+import logo from "@/assets/logo.jpg";
+
 interface HeaderProps {
   className?: string;
 }
@@ -6,12 +8,9 @@ const Header = ({ className }: HeaderProps) => {
   return (
     <header className={`gradient-header flex items-center px-6 py-5 shadow-lg md:px-10 ${className || ''}`}>
       <img 
-        src="/logo.jpg" 
+        src={logo} 
         alt="AAYAM Logo" 
-        className="w-16 h-16 object-contain"
-        onError={(e) => {
-          (e.target as HTMLImageElement).src = 'https://placehold.co/65x65?text=Logo';
-        }}
+        className="w-16 h-16 object-contain rounded-full"
       />
       <div className="ml-4">
         <h1 className="text-2xl md:text-3xl font-black text-primary">
