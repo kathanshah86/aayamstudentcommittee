@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -6,6 +6,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TeamMember } from "@/types";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+
+interface Profile {
+  id: string;
+  email: string | null;
+}
 
 interface AdminSectionProps {
   aboutText: string;
@@ -17,7 +25,7 @@ interface AdminSectionProps {
   onLogout: () => void;
 }
 
-type AdminTab = 'home' | 'events' | 'gallery' | 'team';
+type AdminTab = 'home' | 'events' | 'gallery' | 'team' | 'users';
 
 const AdminSection = ({ 
   aboutText, 
@@ -28,10 +36,10 @@ const AdminSection = ({
   onDepartmentsUpdate,
   onLogout 
 }: AdminSectionProps) => {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [username, setUsername] = useState('');
+  const { user, isAdmin, signIn, signOut, loading } = useAuth();
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loginError, setLoginError] = useState(false);
+  const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState<AdminTab>('home');
   const [editAboutText, setEditAboutText] = useState(aboutText);
   const [showMemberForm, setShowMemberForm] = useState(false);
@@ -39,33 +47,106 @@ const AdminSection = ({
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [newDeptName, setNewDeptName] = useState('');
   const [memberForm, setMemberForm] = useState({ name: '', role: '', dept: '' });
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [admins, setAdmins] = useState<string[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState('');
 
-  const handleLogin = () => {
-    if (username === 'admin' && password === 'admin123') {
-      setIsLoggedIn(true);
-      setLoginError(false);
-    } else {
-      setLoginError(true);
+  useEffect(() => {
+    if (isAdmin) {
+      fetchUsers();
+      fetchAdmins();
+    }
+  }, [isAdmin]);
+
+  const fetchUsers = async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, email');
+    
+    if (!error && data) {
+      setUsers(data);
     }
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setUsername('');
+  const fetchAdmins = async () => {
+    const { data, error } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .eq('role', 'admin');
+    
+    if (!error && data) {
+      setAdmins(data.map(r => r.user_id));
+    }
+  };
+
+  const handleLogin = async () => {
+    setLoginError('');
+    const { error } = await signIn(email, password);
+    if (error) {
+      setLoginError(error.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut();
+    setEmail('');
     setPassword('');
     onLogout();
   };
 
+  const grantAdminAccess = async () => {
+    if (!selectedUserId) {
+      toast.error('Please select a user');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('user_roles')
+      .insert({ user_id: selectedUserId, role: 'admin' });
+
+    if (error) {
+      if (error.code === '23505') {
+        toast.error('User already has admin access');
+      } else {
+        toast.error('Failed to grant admin access');
+      }
+    } else {
+      toast.success('Admin access granted successfully');
+      fetchAdmins();
+      setSelectedUserId('');
+    }
+  };
+
+  const revokeAdminAccess = async (userId: string) => {
+    if (userId === user?.id) {
+      toast.error("You cannot revoke your own admin access");
+      return;
+    }
+
+    const { error } = await supabase
+      .from('user_roles')
+      .delete()
+      .eq('user_id', userId)
+      .eq('role', 'admin');
+
+    if (error) {
+      toast.error('Failed to revoke admin access');
+    } else {
+      toast.success('Admin access revoked');
+      fetchAdmins();
+    }
+  };
+
   const saveHomeContent = () => {
     onAboutTextChange(editAboutText);
-    alert('Home page content updated successfully!');
+    toast.success('Home page content updated successfully!');
   };
 
   const addDepartment = () => {
     if (newDeptName.trim() && !departments.includes(newDeptName.trim())) {
       onDepartmentsUpdate([...departments, newDeptName.trim()]);
       setNewDeptName('');
-      alert('Department Added');
+      toast.success('Department Added');
     }
   };
 
@@ -95,7 +176,7 @@ const AdminSection = ({
 
   const saveMember = () => {
     if (!memberForm.name || !memberForm.role) {
-      alert('Name and Role required');
+      toast.error('Name and Role required');
       return;
     }
 
@@ -116,7 +197,7 @@ const AdminSection = ({
       }]);
     }
     setShowMemberForm(false);
-    alert('Member Saved!');
+    toast.success('Member Saved!');
   };
 
   const navItems = [
@@ -124,42 +205,61 @@ const AdminSection = ({
     { id: 'events' as const, label: 'Manage Events' },
     { id: 'gallery' as const, label: 'Manage Gallery' },
     { id: 'team' as const, label: 'Manage Team' },
+    { id: 'users' as const, label: 'Manage Admins' },
   ];
 
-  if (!isLoggedIn) {
+  if (loading) {
+    return (
+      <div className="animate-fade-in text-center py-20">
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  // Not logged in OR not admin
+  if (!user || !isAdmin) {
     return (
       <div className="animate-fade-in">
         <h2 className="text-center text-3xl font-black text-primary mb-8">Admin Panel</h2>
         <div className="max-w-[400px] mx-auto">
           <div className="bg-card p-8 rounded-2xl shadow-xl">
             <h3 className="text-xl font-bold text-center mb-6">Restricted Access</h3>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="admin-user">Username</Label>
-                <Input 
-                  id="admin-user" 
-                  value={username} 
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter username"
-                />
+            {user && !isAdmin ? (
+              <div className="text-center space-y-4">
+                <p className="text-destructive">You do not have admin privileges.</p>
+                <Button onClick={handleLogout} variant="outline">Sign Out</Button>
               </div>
-              <div>
-                <Label htmlFor="admin-pass">Password</Label>
-                <Input 
-                  id="admin-pass" 
-                  type="password"
-                  value={password} 
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter password"
-                />
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="admin-email">Email</Label>
+                  <Input 
+                    id="admin-email" 
+                    type="email"
+                    value={email} 
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Enter email"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="admin-pass">Password</Label>
+                  <Input 
+                    id="admin-pass" 
+                    type="password"
+                    value={password} 
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter password"
+                    onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                  />
+                </div>
+                <Button onClick={handleLogin} className="w-full">
+                  Login
+                </Button>
+                {loginError && (
+                  <p className="text-destructive text-sm text-center">{loginError}</p>
+                )}
               </div>
-              <Button onClick={handleLogin} className="w-full">
-                Login
-              </Button>
-              {loginError && (
-                <p className="text-destructive text-sm text-center">Invalid Credentials</p>
-              )}
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -172,7 +272,7 @@ const AdminSection = ({
       
       <div className="flex min-h-[600px] bg-card rounded-2xl overflow-hidden shadow-xl">
         {/* Sidebar */}
-        <div className="w-[250px] bg-sidebar text-sidebar-foreground p-5">
+        <div className="w-[250px] bg-sidebar text-sidebar-foreground p-5 flex flex-col">
           <h3 className="text-accent border-b border-sidebar-border pb-4 mb-5 font-semibold">
             Dashboard
           </h3>
@@ -190,6 +290,7 @@ const AdminSection = ({
             </button>
           ))}
           <div className="mt-auto pt-5 border-t border-sidebar-border">
+            <p className="text-xs text-sidebar-foreground/60 mb-2 truncate">{user.email}</p>
             <button
               onClick={handleLogout}
               className="block w-full text-left p-3 rounded-md hover:bg-sidebar-primary hover:text-sidebar-primary-foreground transition-colors"
@@ -200,7 +301,7 @@ const AdminSection = ({
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 p-8 bg-muted/20">
+        <div className="flex-1 p-8 bg-muted/20 overflow-auto">
           {/* Edit Home Tab */}
           {activeTab === 'home' && (
             <div>
@@ -370,6 +471,60 @@ const AdminSection = ({
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* Manage Admins Tab */}
+          {activeTab === 'users' && (
+            <div>
+              <h3 className="text-xl font-bold mb-4">Manage Admin Access</h3>
+              
+              {/* Grant Admin Access */}
+              <div className="bg-card p-5 rounded-lg mb-6 border">
+                <h4 className="font-semibold mb-3">Grant Admin Access</h4>
+                <div className="flex gap-2">
+                  <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Select a registered user" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {users
+                        .filter(u => !admins.includes(u.id))
+                        .map((u) => (
+                          <SelectItem key={u.id} value={u.id}>
+                            {u.email || 'No email'}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={grantAdminAccess}>Grant Access</Button>
+                </div>
+              </div>
+
+              {/* Current Admins */}
+              <div className="bg-card p-5 rounded-lg border">
+                <h4 className="font-semibold mb-3">Current Admins</h4>
+                <div className="space-y-2">
+                  {users
+                    .filter(u => admins.includes(u.id))
+                    .map((adminUser) => (
+                      <div key={adminUser.id} className="flex justify-between items-center p-3 bg-muted rounded-md">
+                        <span>{adminUser.email || 'No email'}</span>
+                        <Button 
+                          variant="destructive" 
+                          size="sm"
+                          onClick={() => revokeAdminAccess(adminUser.id)}
+                          disabled={adminUser.id === user?.id}
+                        >
+                          {adminUser.id === user?.id ? 'You' : 'Revoke'}
+                        </Button>
+                      </div>
+                    ))}
+                  {admins.length === 0 && (
+                    <p className="text-muted-foreground">No admins found</p>
+                  )}
+                </div>
               </div>
             </div>
           )}

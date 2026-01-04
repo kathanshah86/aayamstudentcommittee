@@ -13,8 +13,10 @@ import { teamData as initialTeamData, departments as initialDepartments } from "
 import { eventsData } from "@/data/eventsData";
 import { galleryData } from "@/data/galleryData";
 import { TeamMember } from "@/types";
+import { useAuth } from "@/hooks/useAuth";
 
 const Index = () => {
+  const { isAdmin } = useAuth();
   const [activeSection, setActiveSection] = useState('home');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [aboutText, setAboutText] = useState(
@@ -80,7 +82,7 @@ const Index = () => {
         </section>
       </main>
       
-      <Footer onAdminClick={() => handleNavigate('admin')} />
+      <Footer onAdminClick={() => handleNavigate('admin')} showAdminLink={isAdmin} />
       
       <Lightbox 
         isOpen={!!lightboxImage} 
