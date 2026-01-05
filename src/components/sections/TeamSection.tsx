@@ -6,11 +6,25 @@ interface TeamSectionProps {
   departments: string[];
 }
 
+// Role order for sorting within departments
+const roleOrder = ["Head", "Vice Head", "Secretary", "Vice Secretary"];
+
+const getRoleOrder = (role: string): number => {
+  const index = roleOrder.findIndex(r => role.toLowerCase().includes(r.toLowerCase()));
+  return index === -1 ? 999 : index;
+};
+
 const TeamSection = ({ teamData, departments }: TeamSectionProps) => {
   // Get Core members (President/VP)
   const coreMembers = teamData.filter(m => m.dept === "Core");
   const president = coreMembers.find(m => m.role.includes("President") && !m.role.includes("Vice"));
   const vicePresident = coreMembers.find(m => m.role.includes("Vice President"));
+
+  // Get Advisory members
+  const advisoryMembers = teamData.filter(m => m.dept === "Advisory");
+
+  // Filter out Core and Advisory from regular departments
+  const regularDepartments = departments.filter(d => d !== "Core" && d !== "Advisory");
 
   return (
     <div className="animate-fade-in">
@@ -24,10 +38,11 @@ const TeamSection = ({ teamData, departments }: TeamSectionProps) => {
         </div>
       )}
 
-      {/* Other Departments */}
-      {departments.map((dept) => {
-        if (dept === "Core") return null;
-        const members = teamData.filter(m => m.dept === dept);
+      {/* Other Departments - sorted by role order */}
+      {regularDepartments.map((dept) => {
+        const members = teamData
+          .filter(m => m.dept === dept)
+          .sort((a, b) => getRoleOrder(a.role) - getRoleOrder(b.role));
         
         return (
           <div key={dept} className="mb-8">
@@ -46,6 +61,18 @@ const TeamSection = ({ teamData, departments }: TeamSectionProps) => {
           </div>
         );
       })}
+
+      {/* Advisory Section - at the end */}
+      {advisoryMembers.length > 0 && (
+        <div className="mt-12">
+          <h2 className="text-center text-3xl font-black text-primary mb-8">Advisory</h2>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-8 max-w-[900px] mx-auto">
+            {advisoryMembers.map((member) => (
+              <TeamCard key={member.id} member={member} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

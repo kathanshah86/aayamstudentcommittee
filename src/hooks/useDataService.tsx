@@ -38,6 +38,8 @@ export interface DbDepartment {
 
 export const useDataService = () => {
   const [aboutText, setAboutText] = useState('');
+  const [contactEmail, setContactEmail] = useState('aayamcommittee@gmail.com');
+  const [instagramUrl, setInstagramUrl] = useState('');
   const [teamData, setTeamData] = useState<TeamMember[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [events, setEvents] = useState<EventData[]>([]);
@@ -48,6 +50,7 @@ export const useDataService = () => {
     setLoading(true);
     await Promise.all([
       fetchAboutText(),
+      fetchContactInfo(),
       fetchTeam(),
       fetchDepartments(),
       fetchEvents(),
@@ -74,6 +77,27 @@ export const useDataService = () => {
     }
   };
 
+  const fetchContactInfo = async () => {
+    const { data: emailData } = await supabase
+      .from('site_content')
+      .select('content')
+      .eq('id', 'contact_email')
+      .maybeSingle();
+    
+    const { data: instaData } = await supabase
+      .from('site_content')
+      .select('content')
+      .eq('id', 'instagram_url')
+      .maybeSingle();
+    
+    if (emailData) {
+      setContactEmail(emailData.content);
+    }
+    if (instaData) {
+      setInstagramUrl(instaData.content);
+    }
+  };
+
   const saveAboutText = async (text: string) => {
     const { error } = await supabase
       .from('site_content')
@@ -85,6 +109,25 @@ export const useDataService = () => {
     }
     setAboutText(text);
     toast.success('Home content saved!');
+    return true;
+  };
+
+  const saveContactInfo = async (email: string, instaUrl: string) => {
+    const { error: emailError } = await supabase
+      .from('site_content')
+      .upsert({ id: 'contact_email', content: email, updated_at: new Date().toISOString() });
+    
+    const { error: instaError } = await supabase
+      .from('site_content')
+      .upsert({ id: 'instagram_url', content: instaUrl, updated_at: new Date().toISOString() });
+    
+    if (emailError || instaError) {
+      toast.error('Failed to save contact info');
+      return false;
+    }
+    setContactEmail(email);
+    setInstagramUrl(instaUrl);
+    toast.success('Contact info saved!');
     return true;
   };
 
@@ -472,6 +515,8 @@ export const useDataService = () => {
 
   return {
     aboutText,
+    contactEmail,
+    instagramUrl,
     teamData,
     departments,
     events,
@@ -479,6 +524,7 @@ export const useDataService = () => {
     loading,
     fetchAll,
     saveAboutText,
+    saveContactInfo,
     addDepartment,
     deleteDepartment,
     addTeamMember,

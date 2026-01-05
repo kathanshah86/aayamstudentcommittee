@@ -15,7 +15,7 @@ import { useDataService } from "@/hooks/useDataService";
 
 const Index = () => {
   const { isAdmin } = useAuth();
-  const { aboutText, teamData, departments, events, galleryImages, loading } = useDataService();
+  const { aboutText, contactEmail, instagramUrl, teamData, departments, events, galleryImages, loading } = useDataService();
   const [activeSection, setActiveSection] = useState('home');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
@@ -65,7 +65,7 @@ const Index = () => {
       case 'gallery':
         return <GallerySection images={galleryImages} onImageClick={openLightbox} />;
       case 'contact':
-        return <ContactSection />;
+        return <ContactSection email={contactEmail} instagramUrl={instagramUrl} />;
       case 'auth':
         return <AuthSection onSuccess={handleAuthSuccess} />;
       case 'admin':
