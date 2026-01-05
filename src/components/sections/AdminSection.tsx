@@ -20,18 +20,23 @@ interface AdminSectionProps {
   onLogout: () => void;
 }
 
-type AdminTab = 'home' | 'events' | 'gallery' | 'team' | 'users';
+type AdminTab = 'home' | 'events' | 'gallery' | 'team' | 'contact' | 'users';
+
+const ROLE_OPTIONS = ['Head', 'Vice Head', 'Secretary', 'Vice Secretary'];
 
 const AdminSection = ({ onLogout }: AdminSectionProps) => {
   const { user, isAdmin, signIn, signOut, loading: authLoading } = useAuth();
   const {
     aboutText,
+    contactEmail,
+    instagramUrl,
     teamData,
     departments,
     events,
     galleryImages,
     loading: dataLoading,
     saveAboutText,
+    saveContactInfo,
     addDepartment,
     deleteDepartment,
     addTeamMember,
@@ -75,6 +80,10 @@ const AdminSection = ({ onLogout }: AdminSectionProps) => {
   // Gallery form state
   const [galleryFile, setGalleryFile] = useState<File | null>(null);
   const [galleryAlt, setGalleryAlt] = useState('');
+
+  // Contact form state
+  const [editContactEmail, setEditContactEmail] = useState('');
+  const [editInstagramUrl, setEditInstagramUrl] = useState('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const memberImageRef = useRef<HTMLInputElement>(null);
@@ -84,6 +93,11 @@ const AdminSection = ({ onLogout }: AdminSectionProps) => {
   useEffect(() => {
     setEditAboutText(aboutText);
   }, [aboutText]);
+
+  useEffect(() => {
+    setEditContactEmail(contactEmail);
+    setEditInstagramUrl(instagramUrl);
+  }, [contactEmail, instagramUrl]);
 
   useEffect(() => {
     if (isAdmin) {
@@ -173,6 +187,10 @@ const AdminSection = ({ onLogout }: AdminSectionProps) => {
 
   const handleSaveHomeContent = async () => {
     await saveAboutText(editAboutText);
+  };
+
+  const handleSaveContactInfo = async () => {
+    await saveContactInfo(editContactEmail, editInstagramUrl);
   };
 
   const handleAddDepartment = async () => {
@@ -332,6 +350,7 @@ const AdminSection = ({ onLogout }: AdminSectionProps) => {
     { id: 'events' as const, label: 'Manage Events' },
     { id: 'gallery' as const, label: 'Manage Gallery' },
     { id: 'team' as const, label: 'Manage Team' },
+    { id: 'contact' as const, label: 'Manage Contact' },
     { id: 'users' as const, label: 'Manage Admins' },
   ];
 
@@ -705,10 +724,19 @@ const AdminSection = ({ onLogout }: AdminSectionProps) => {
                     </div>
                     <div>
                       <Label>Role</Label>
-                      <Input 
-                        value={memberForm.role}
-                        onChange={(e) => setMemberForm({ ...memberForm, role: e.target.value })}
-                      />
+                      <Select 
+                        value={memberForm.role} 
+                        onValueChange={(v) => setMemberForm({ ...memberForm, role: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ROLE_OPTIONS.map((role) => (
+                            <SelectItem key={role} value={role}>{role}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <Label>Department</Label>
@@ -796,6 +824,37 @@ const AdminSection = ({ onLogout }: AdminSectionProps) => {
                 {teamData.length === 0 && (
                   <p className="text-muted-foreground text-center py-8">No team members yet.</p>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Manage Contact Tab */}
+          {activeTab === 'contact' && (
+            <div>
+              <h3 className="text-xl font-bold mb-4">Manage Contact Info</h3>
+              
+              <div className="bg-card p-5 rounded-lg border space-y-4">
+                <div>
+                  <Label>Contact Email</Label>
+                  <Input 
+                    type="email"
+                    value={editContactEmail}
+                    onChange={(e) => setEditContactEmail(e.target.value)}
+                    placeholder="email@example.com"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label>Instagram Profile URL</Label>
+                  <Input 
+                    value={editInstagramUrl}
+                    onChange={(e) => setEditInstagramUrl(e.target.value)}
+                    placeholder="https://instagram.com/yourprofile"
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Enter the full Instagram URL</p>
+                </div>
+                <Button onClick={handleSaveContactInfo}>Save Contact Info</Button>
               </div>
             </div>
           )}
