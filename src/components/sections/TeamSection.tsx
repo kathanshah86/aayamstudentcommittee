@@ -9,8 +9,24 @@ interface TeamSectionProps {
 // Role order for sorting within departments
 const roleOrder = ["Head", "Vice Head", "Secretary", "Vice Secretary"];
 
+// Department display order
+const DEPARTMENT_ORDER = [
+  "Advisory",
+  "Management Department",
+  "Media Department",
+  "Sports & Cultural Head",
+  "Sports Department",
+  "Cultural Department",
+  "Technical"
+];
+
 const getRoleOrder = (role: string): number => {
   const index = roleOrder.findIndex(r => role.toLowerCase().includes(r.toLowerCase()));
+  return index === -1 ? 999 : index;
+};
+
+const getDepartmentOrder = (dept: string): number => {
+  const index = DEPARTMENT_ORDER.indexOf(dept);
   return index === -1 ? 999 : index;
 };
 
@@ -23,8 +39,10 @@ const TeamSection = ({ teamData, departments }: TeamSectionProps) => {
   // Get Advisory members
   const advisoryMembers = teamData.filter(m => m.dept === "Advisory");
 
-  // Filter out Core and Advisory from regular departments
-  const regularDepartments = departments.filter(d => d !== "Core" && d !== "Advisory");
+  // Filter out Core and Advisory from regular departments and sort by order
+  const regularDepartments = departments
+    .filter(d => d !== "Core" && d !== "Advisory")
+    .sort((a, b) => getDepartmentOrder(a) - getDepartmentOrder(b));
 
   return (
     <div className="animate-fade-in">
@@ -38,41 +56,41 @@ const TeamSection = ({ teamData, departments }: TeamSectionProps) => {
         </div>
       )}
 
-      {/* Other Departments - sorted by role order */}
-      {regularDepartments.map((dept) => {
-        const members = teamData
-          .filter(m => m.dept === dept)
-          .sort((a, b) => getRoleOrder(a.role) - getRoleOrder(b.role));
-        
-        return (
-          <div key={dept} className="mb-8">
-            <h3 className="text-xl text-muted-foreground font-semibold border-b-2 border-accent pb-2 mb-5 inline-block">
-              {dept}
-            </h3>
-            {members.length > 0 ? (
-              <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-8">
-                {members.map((member) => (
-                  <TeamCard key={member.id} member={member} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted-foreground italic">No members yet.</p>
-            )}
-          </div>
-        );
-      })}
-
-      {/* Advisory Section - at the end */}
+      {/* Advisory Section - right after Organizing Team */}
       {advisoryMembers.length > 0 && (
-        <div className="mt-12">
-          <h2 className="text-center text-3xl font-black text-primary mb-8">Advisory</h2>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-8 max-w-[900px] mx-auto">
+        <div className="mb-10">
+          <h3 className="text-xl text-muted-foreground font-semibold border-b-2 border-accent pb-2 mb-5 inline-block">
+            Advisory
+          </h3>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-8">
             {advisoryMembers.map((member) => (
               <TeamCard key={member.id} member={member} />
             ))}
           </div>
         </div>
       )}
+
+      {/* Other Departments - sorted by defined order, then by role order */}
+      {regularDepartments.map((dept) => {
+        const members = teamData
+          .filter(m => m.dept === dept)
+          .sort((a, b) => getRoleOrder(a.role) - getRoleOrder(b.role));
+        
+        if (members.length === 0) return null;
+        
+        return (
+          <div key={dept} className="mb-8">
+            <h3 className="text-xl text-muted-foreground font-semibold border-b-2 border-accent pb-2 mb-5 inline-block">
+              {dept}
+            </h3>
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-8">
+              {members.map((member) => (
+                <TeamCard key={member.id} member={member} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 };

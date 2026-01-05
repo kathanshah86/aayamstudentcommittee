@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { TeamMember, EventData, GalleryImage } from '@/types';
 import { toast } from 'sonner';
@@ -36,6 +36,9 @@ export interface DbDepartment {
   sort_order: number | null;
 }
 
+// Cache for departments to avoid re-fetching
+let deptCache: Map<string, string> = new Map();
+
 export const useDataService = () => {
   const [aboutText, setAboutText] = useState('');
   const [contactEmail, setContactEmail] = useState('aayamcommittee@gmail.com');
@@ -46,7 +49,7 @@ export const useDataService = () => {
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     await Promise.all([
       fetchAboutText(),
@@ -57,10 +60,37 @@ export const useDataService = () => {
       fetchGallery()
     ]);
     setLoading(false);
-  };
+  }, []);
 
+  // Setup real-time subscriptions
   useEffect(() => {
     fetchAll();
+
+    // Subscribe to real-time changes
+    const channel = supabase
+      .channel('db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'site_content' }, () => {
+        fetchAboutText();
+        fetchContactInfo();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, () => {
+        fetchTeam();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'departments' }, () => {
+        fetchDepartments();
+        fetchTeam();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
+        fetchEvents();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gallery_images' }, () => {
+        fetchGallery();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchAboutText = async () => {
@@ -138,22 +168,20 @@ export const useDataService = () => {
       .order('sort_order', { ascending: true });
     
     if (data) {
+      deptCache = new Map(data.map(d => [d.id, d.name]));
       setDepartments(data.map(d => ({ id: d.id, name: d.name })));
     }
   };
 
   const addDepartment = async (name: string) => {
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('departments')
-      .insert({ name, sort_order: departments.length })
-      .select()
-      .single();
+      .insert({ name, sort_order: departments.length });
     
     if (error) {
       toast.error('Failed to add department');
       return false;
     }
-    await fetchDepartments();
     toast.success('Department added!');
     return true;
   };
@@ -168,29 +196,31 @@ export const useDataService = () => {
       toast.error('Failed to delete department');
       return false;
     }
-    await fetchDepartments();
     toast.success('Department deleted!');
     return true;
   };
 
   const fetchTeam = async () => {
-    const { data: deptData } = await supabase
-      .from('departments')
-      .select('*');
+    // Use cached departments if available, otherwise fetch
+    if (deptCache.size === 0) {
+      const { data: deptData } = await supabase.from('departments').select('*');
+      if (deptData) {
+        deptCache = new Map(deptData.map(d => [d.id, d.name]));
+      }
+    }
     
     const { data } = await supabase
       .from('team_members')
       .select('*')
       .order('sort_order', { ascending: true });
     
-    if (data && deptData) {
-      const deptMap = new Map(deptData.map(d => [d.id, d.name]));
+    if (data) {
       setTeamData(data.map((m, index) => ({
         id: index + 1,
         dbId: m.id,
         name: m.name,
         role: m.role,
-        dept: m.department_id ? deptMap.get(m.department_id) || 'Unknown' : 'Unknown',
+        dept: m.department_id ? deptCache.get(m.department_id) || 'Unknown' : 'Unknown',
         img: m.image_url || `https://placehold.co/115x115?text=${m.name.charAt(0)}`
       })));
     }
@@ -231,7 +261,6 @@ export const useDataService = () => {
       toast.error('Failed to add team member');
       return false;
     }
-    await fetchTeam();
     toast.success('Team member added!');
     return true;
   };
@@ -266,7 +295,6 @@ export const useDataService = () => {
       toast.error('Failed to update team member');
       return false;
     }
-    await fetchTeam();
     toast.success('Team member updated!');
     return true;
   };
@@ -281,7 +309,6 @@ export const useDataService = () => {
       toast.error('Failed to delete team member');
       return false;
     }
-    await fetchTeam();
     toast.success('Team member deleted!');
     return true;
   };
@@ -365,7 +392,6 @@ export const useDataService = () => {
       toast.error('Failed to add event');
       return false;
     }
-    await fetchEvents();
     toast.success('Event added!');
     return true;
   };
@@ -430,7 +456,6 @@ export const useDataService = () => {
       toast.error('Failed to update event');
       return false;
     }
-    await fetchEvents();
     toast.success('Event updated!');
     return true;
   };
@@ -445,7 +470,6 @@ export const useDataService = () => {
       toast.error('Failed to delete event');
       return false;
     }
-    await fetchEvents();
     toast.success('Event deleted!');
     return true;
   };
@@ -493,7 +517,6 @@ export const useDataService = () => {
       toast.error('Failed to add to gallery');
       return false;
     }
-    await fetchGallery();
     toast.success('Image added to gallery!');
     return true;
   };
@@ -508,7 +531,6 @@ export const useDataService = () => {
       toast.error('Failed to delete image');
       return false;
     }
-    await fetchGallery();
     toast.success('Image deleted!');
     return true;
   };
